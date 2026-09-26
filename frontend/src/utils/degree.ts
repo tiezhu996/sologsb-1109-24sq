@@ -142,6 +142,14 @@ export function formatDate(value: Date | string): string {
   return `${y}-${m}-${day}`;
 }
 
+/** 日期时间（到分钟），用于质检放行/退回留痕展示 */
+export function formatDateTime(value: Date | string): string {
+  const d = typeof value === 'string' ? new Date(value) : value;
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${formatDate(d)} ${hh}:${mm}`;
+}
+
 /** 距到期天数（负数表示已过期） */
 export function daysToExpire(sample: RetainSample, now: Date = new Date()): number {
   return Math.ceil((expireDateOf(sample).getTime() - now.getTime()) / DAY_MS);

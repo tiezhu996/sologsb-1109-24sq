@@ -1,7 +1,7 @@
 import { Empty, Tag, Timeline, Typography } from 'antd';
 import type { HerbMaterial } from '../../types/herb-material';
 import type { ProcessingMethod } from '../../types/processing-method';
-import type { ProcessBatch, ProcessDegree } from '../../types/process-batch';
+import { QC_STATUS_LABEL, type ProcessBatch, type ProcessDegree, type QcStatus } from '../../types/process-batch';
 import { formatDate } from '../../utils/degree';
 
 const { Text } = Typography;
@@ -18,6 +18,8 @@ const DEGREE_COLOR: Record<ProcessDegree, string> = {
   适中: 'green',
   太过: 'red',
 };
+
+const QC_STATUS_COLOR: Record<QcStatus, string> = { pending: 'gold', released: 'green', returned: 'orange' };
 
 /** 炮制工序时间线（首页复用），展示最近批次的方法、火候与得率 */
 export default function ProcessTimeline({ batches, herbs, methods, limit = 6 }: ProcessTimelineProps) {
@@ -39,7 +41,7 @@ export default function ProcessTimeline({ batches, herbs, methods, limit = 6 }: 
               <Tag style={{ marginLeft: 8 }} color={DEGREE_COLOR[batch.degree]}>
                 {batch.degree}
               </Tag>
-              {batch.locked ? <Tag color="blue">已锁定</Tag> : <Tag>待判定</Tag>}
+              <Tag color={QC_STATUS_COLOR[batch.qcStatus]}>{QC_STATUS_LABEL[batch.qcStatus]}</Tag>
               <div style={{ fontSize: 12, color: '#6b7a70' }}>
                 {herb?.name ?? '未知药材'} · {method?.name ?? '未知方法'} · {batch.fireLevel} ·{' '}
                 {formatDate(batch.startedAt)} · 得率 {batch.yieldRate}% · 操作人 {batch.operator}

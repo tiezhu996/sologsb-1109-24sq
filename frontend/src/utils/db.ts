@@ -8,7 +8,7 @@ import type { RetainSample } from '../types/retain-sample';
 export const DB_NAME = 'gbherbprocess-db';
 
 /** 当前 schema 版本，与 db.version(n) 对应 */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 class HerbProcessDB extends Dexie {
   herbs!: Table<HerbMaterial, string>;
@@ -47,6 +47,32 @@ class HerbProcessDB extends Dexie {
             if (typeof row.locked !== 'boolean') {
               row.locked = false;
             }
+          });
+      });
+
+    // v3：批次增加质检状态（待质检/已放行/已退回）与质检留痕 qcLogs，回填历史数据。
+    // 旧「已锁定」视为待质检；旧「质检员解锁」视为已放行（定稿）；其余未锁定视为已退回。
+    // 升级前请在「导出备份」中导出 JSON。
+    this.version(3)
+      .stores({
+        herbs: 'id, name, origin, part, batchNo, receivedAt',
+        methods: 'id, name, auxiliary, fireLevel',
+        batches: 'id, batchNo, herbId, methodId, degree, startedAt, locked, qcStatus',
+        samples: 'id, sampleNo, batchId, cabinet, retainedAt',
+        meta: 'key',
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table('batches')
+          .toCollection()
+          .modify((row: ProcessBatch) => {
+            if (!row.qcStatus) {
+              row.qcStatus = row.locked ? 'pending' : row.qcBy ? 'released' : 'returned';
+            }
+            if (!Array.isArray(row.qcLogs)) {
+              row.qcLogs = [];
+            }
+            row.locked = row.qcStatus !== 'returned';
           });
       });
   }

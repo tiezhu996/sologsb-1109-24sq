@@ -8,20 +8,20 @@ import { useHerbStore } from '../stores/herbStore';
 import { useMethodStore } from '../stores/methodStore';
 import { useBatchStore } from '../stores/batchStore';
 import { useSampleStore } from '../stores/sampleStore';
-import { dueSamples, formatDate } from '../utils/degree';
+import { dueSamples } from '../utils/degree';
 import type { ProcessBatch } from '../types/process-batch';
 import type { SampleExpiry } from '../types/retain-sample';
 
 const { Title, Paragraph, Text } = Typography;
 
-/** 首页：待炮制批次与留样到期提示 */
+/** 首页：待质检批次名单与留样到期提示 */
 export default function ProcessBoard() {
   const herbs = useHerbStore((s) => s.herbs);
   const methods = useMethodStore((s) => s.methods);
   const batches = useBatchStore((s) => s.batches);
   const samples = useSampleStore((s) => s.samples);
 
-  const pending = useMemo(() => batches.filter((b) => !b.locked), [batches]);
+  const pendingQc = useMemo(() => batches.filter((b) => b.qcStatus === 'pending'), [batches]);
   const due = useMemo(() => dueSamples(samples, 30), [samples]);
   const degreeCount = useMemo(() => {
     return batches.reduce(
@@ -39,29 +39,17 @@ export default function ProcessBoard() {
   }, [batches]);
 
   const herbName = (id: string) => herbs.find((h) => h.id === id)?.name ?? '未知药材';
-  const methodName = (id: string) => methods.find((m) => m.id === id)?.name ?? '未知方法';
 
   const pendingColumns: TableColumnsType<ProcessBatch> = [
-    { title: '生产批号', dataIndex: 'batchNo', width: 130, render: (v: string) => <Text strong>{v}</Text> },
-    { title: '药材', dataIndex: 'herbId', width: 100, render: (id: string) => herbName(id) },
-    { title: '炮制方法', dataIndex: 'methodId', width: 100, render: (id: string) => methodName(id) },
-    { title: '投料量(kg)', dataIndex: 'feedKg', width: 100, align: 'right' },
-    { title: '辅料用量(kg)', dataIndex: 'auxUsedKg', width: 110, align: 'right' },
+    { title: '生产批号', dataIndex: 'batchNo', width: 140, render: (v: string) => <Text strong>{v}</Text> },
+    { title: '药材', dataIndex: 'herbId', width: 120, render: (id: string) => herbName(id) },
     {
       title: '得率(%)',
       dataIndex: 'yieldRate',
-      width: 90,
+      width: 100,
       align: 'right',
       render: (v: number) => <Text type={v < 85 ? 'danger' : undefined}>{v}</Text>,
     },
-    {
-      title: '火候',
-      dataIndex: 'fireLevel',
-      width: 90,
-      render: (v: string) => <Tag color={v === '武火' ? 'red' : v === '中火' ? 'orange' : 'green'}>{v}</Tag>,
-    },
-    { title: '操作人', dataIndex: 'operator', width: 90 },
-    { title: '开始时间', dataIndex: 'startedAt', width: 150, render: (v: string) => formatDate(v) },
   ];
 
   const dueColumns: TableColumnsType<SampleExpiry> = [
@@ -94,13 +82,13 @@ export default function ProcessBoard() {
         中草药炮制工序记录台
       </Title>
       <Paragraph type="secondary">
-        按投料量折算辅料、记录火候与得率、逐批判定炮制程度并管理留样观察。数据全部保存在浏览器本地（IndexedDB：
+        按投料量折算辅料、记录火候与得率、逐批判定炮制程度；班组提交后进入待质检，质检员放行即定稿、退回须填原因留痕，留样仅取自已放行批次。数据全部保存在浏览器本地（IndexedDB：
         gbherbprocess-db）。
       </Paragraph>
 
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} md={6}>
-          <StatBadge label="待炮制（未锁定）批次" value={pending.length} unit="批" status="warning" hint="得率与程度判定提交后即锁定" />
+          <StatBadge label="待质检批次" value={pendingQc.length} unit="批" status="warning" hint="班组提交后待质检员复核放行" />
         </Col>
         <Col xs={12} md={6}>
           <StatBadge label="在册药材批次" value={herbs.length} unit="批" />
@@ -140,12 +128,12 @@ export default function ProcessBoard() {
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={15}>
           <Card
-            title="待炮制批次"
+            title="待质检批次（质检员复核名单）"
             size="small"
             extra={
-              <Link to="/batches">
+              <Link to="/batches?qc=待质检">
                 <Button size="small" type="primary">
-                  去工序记录台
+                  去工序记录台处理
                 </Button>
               </Link>
             }
@@ -154,9 +142,9 @@ export default function ProcessBoard() {
               rowKey="id"
               size="small"
               columns={pendingColumns}
-              dataSource={pending}
+              dataSource={pendingQc}
               pagination={{ pageSize: 6, hideOnSinglePage: true }}
-              scroll={{ x: 900 }}
+              locale={{ emptyText: '暂无待质检批次' }}
             />
           </Card>
         </Col>

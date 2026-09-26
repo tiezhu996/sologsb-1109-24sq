@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { App as AntApp, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App as AntApp, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
+import { Link } from 'react-router-dom';
 import StatBadge from '../components/common/StatBadge';
 import CabinetGrid from '../components/common/CabinetGrid';
 import EmptyPanel from '../components/common/EmptyPanel';
@@ -52,6 +53,8 @@ export default function SampleLedger() {
   const expiryList = useMemo(() => buildExpiryList(samples, 30), [samples]);
   const dueList = useMemo(() => expiryList.filter((item) => item.daysLeft <= 30), [expiryList]);
   const expired = useMemo(() => expiryList.filter((item) => item.daysLeft < 0), [expiryList]);
+  /** 留样只能登记到质检已放行的批次 */
+  const releasedBatches = useMemo(() => batches.filter((b) => b.qcStatus === 'released'), [batches]);
 
   const visible = useMemo(
     () => (selectedCabinet ? expiryList.filter((item) => item.sample.cabinet === selectedCabinet) : expiryList),
@@ -67,7 +70,7 @@ export default function SampleLedger() {
 
   const openCreate = () => {
     const nextIndex = samples.length + 1;
-    const batch = batches[0];
+    const batch = releasedBatches[0];
     form.resetFields();
     form.setFieldsValue({
       sampleNo: `LY-${batch?.batchNo ?? 'NEW'}-${String(nextIndex).padStart(2, '0')}`,
@@ -175,7 +178,7 @@ export default function SampleLedger() {
       <Title level={3} style={{ marginBottom: 4 }}>
         留样与观察台账
       </Title>
-      <Paragraph type="secondary">按柜位网格查看占用与到期状态，观察记录按日期追加；到期前 30 天进入提醒清单。</Paragraph>
+      <Paragraph type="secondary">按柜位网格查看占用与到期状态，观察记录按日期追加；留样只能登记到质检已放行的批次，到期前 30 天进入提醒清单。</Paragraph>
 
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} md={6}>
@@ -215,13 +218,40 @@ export default function SampleLedger() {
         <Table rowKey={(row) => row.sample.id} size="small" columns={columns} dataSource={visible} pagination={{ pageSize: 8 }} scroll={{ x: 1400 }} />
       )}
 
-      <Modal open={open} title="登记留样" onCancel={() => setOpen(false)} onOk={submit} okText="保存" cancelText="取消" width={560}>
-        <Form form={form} layout="vertical">
+      <Modal
+        open={open}
+        title="登记留样"
+        onCancel={() => setOpen(false)}
+        onOk={submit}
+        okText="保存"
+        cancelText="取消"
+        width={560}
+        okButtonProps={{ disabled: releasedBatches.length === 0 }}
+      >
+        {releasedBatches.length === 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="暂无质检放行的批次，无法登记留样"
+            description={
+              <span>
+                留样只能登记到质检已放行的批次。请先到 <Link to="/batches?qc=待质检">工序记录台</Link> 完成质检放行，再回来登记留样。
+              </span>
+            }
+          />
+        ) : null}
+        <Form form={form} layout="vertical" disabled={releasedBatches.length === 0}>
           <Form.Item name="sampleNo" label="留样编号" rules={[{ required: true, message: '请输入留样编号' }]}>
             <Input maxLength={32} />
           </Form.Item>
-          <Form.Item name="batchId" label="关联炮制批次" rules={[{ required: true, message: '请选择关联批次' }]}>
-            <Select showSearch optionFilterProp="label" options={batches.map((b) => ({ label: batchLabel(b.id), value: b.id }))} />
+          <Form.Item name="batchId" label="关联炮制批次（仅已放行）" rules={[{ required: true, message: '请选择关联批次' }]}>
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={releasedBatches.map((b) => ({ label: batchLabel(b.id), value: b.id }))}
+              notFoundContent="暂无已放行批次"
+            />
           </Form.Item>
           <Space size={12} style={{ display: 'flex' }} align="start">
             <Form.Item name="amountG" label="留样量(g)" rules={[{ required: true, message: '请输入留样量' }]}>
