@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { App as AntApp, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App as AntApp, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
+import { Link } from 'react-router-dom';
 import StatBadge from '../components/common/StatBadge';
 import CabinetGrid from '../components/common/CabinetGrid';
 import EmptyPanel from '../components/common/EmptyPanel';
@@ -53,6 +54,9 @@ export default function SampleLedger() {
   const dueList = useMemo(() => expiryList.filter((item) => item.daysLeft <= 30), [expiryList]);
   const expired = useMemo(() => expiryList.filter((item) => item.daysLeft < 0), [expiryList]);
 
+  /** 留样只能从质检放行定稿的批次里挑，待质检/已退回的一律不出现 */
+  const releasedBatches = useMemo(() => batches.filter((b) => b.qcStatus === '已放行'), [batches]);
+
   const visible = useMemo(
     () => (selectedCabinet ? expiryList.filter((item) => item.sample.cabinet === selectedCabinet) : expiryList),
     [expiryList, selectedCabinet],
@@ -67,7 +71,7 @@ export default function SampleLedger() {
 
   const openCreate = () => {
     const nextIndex = samples.length + 1;
-    const batch = batches[0];
+    const batch = releasedBatches[0];
     form.resetFields();
     form.setFieldsValue({
       sampleNo: `LY-${batch?.batchNo ?? 'NEW'}-${String(nextIndex).padStart(2, '0')}`,
@@ -82,6 +86,11 @@ export default function SampleLedger() {
 
   const submit = async () => {
     const values = await form.validateFields();
+    const batch = batches.find((b) => b.id === values.batchId);
+    if (!batch || batch.qcStatus !== '已放行') {
+      message.error('该批次尚未质检放行，不能登记留样');
+      return;
+    }
     const occupied = expiryList.some((item) => item.sample.cabinet === values.cabinet);
     if (occupied) {
       message.warning(`柜位 ${values.cabinet} 已有留样，仍将并存放置`);
@@ -175,7 +184,9 @@ export default function SampleLedger() {
       <Title level={3} style={{ marginBottom: 4 }}>
         留样与观察台账
       </Title>
-      <Paragraph type="secondary">按柜位网格查看占用与到期状态，观察记录按日期追加；到期前 30 天进入提醒清单。</Paragraph>
+      <Paragraph type="secondary">
+        按柜位网格查看占用与到期状态，观察记录按日期追加；到期前 30 天进入提醒清单。留样只能从质检放行定稿的批次登记。
+      </Paragraph>
 
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} md={6}>
@@ -215,29 +226,61 @@ export default function SampleLedger() {
         <Table rowKey={(row) => row.sample.id} size="small" columns={columns} dataSource={visible} pagination={{ pageSize: 8 }} scroll={{ x: 1400 }} />
       )}
 
-      <Modal open={open} title="登记留样" onCancel={() => setOpen(false)} onOk={submit} okText="保存" cancelText="取消" width={560}>
-        <Form form={form} layout="vertical">
-          <Form.Item name="sampleNo" label="留样编号" rules={[{ required: true, message: '请输入留样编号' }]}>
-            <Input maxLength={32} />
-          </Form.Item>
-          <Form.Item name="batchId" label="关联炮制批次" rules={[{ required: true, message: '请选择关联批次' }]}>
-            <Select showSearch optionFilterProp="label" options={batches.map((b) => ({ label: batchLabel(b.id), value: b.id }))} />
-          </Form.Item>
-          <Space size={12} style={{ display: 'flex' }} align="start">
-            <Form.Item name="amountG" label="留样量(g)" rules={[{ required: true, message: '请输入留样量' }]}>
-              <InputNumber min={0} style={{ width: 150 }} />
+      <Modal
+        open={open}
+        title="登记留样"
+        onCancel={() => setOpen(false)}
+        onOk={submit}
+        okText="保存"
+        cancelText="取消"
+        width={560}
+        okButtonProps={{ disabled: releasedBatches.length === 0 }}
+      >
+        {releasedBatches.length === 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="暂无已放行的炮制批次，不能登记留样"
+            description={
+              <Space direction="vertical" size={8}>
+                <span>留样只能从质检放行定稿的批次中登记。请先到工序记录台完成质检放行，再回来登记。</span>
+                <Link to="/batches?qc=待质检" onClick={() => setOpen(false)}>
+                  <Button size="small" type="primary">
+                    去工序记录台质检
+                  </Button>
+                </Link>
+              </Space>
+            }
+          />
+        ) : (
+          <Form form={form} layout="vertical">
+            <Form.Item name="sampleNo" label="留样编号" rules={[{ required: true, message: '请输入留样编号' }]}>
+              <Input maxLength={32} />
             </Form.Item>
-            <Form.Item name="retainMonths" label="留样期(月)" rules={[{ required: true, message: '请选择留样期' }]}>
-              <Select style={{ width: 150 }} options={[3, 6, 12, 18, 24, 36].map((m) => ({ label: `${m} 个月`, value: m }))} />
+            <Form.Item
+              name="batchId"
+              label="关联炮制批次（仅已放行）"
+              rules={[{ required: true, message: '请选择关联批次' }]}
+              extra="待质检或已退回的批次不会出现在这里"
+            >
+              <Select showSearch optionFilterProp="label" options={releasedBatches.map((b) => ({ label: batchLabel(b.id), value: b.id }))} />
             </Form.Item>
-          </Space>
-          <Form.Item name="cabinet" label="柜位" rules={[{ required: true, message: '请选择柜位' }]}>
-            <Select showSearch options={CABINETS.map((c) => ({ label: c, value: c }))} />
-          </Form.Item>
-          <Form.Item name="retainedAt" label="留样日期" rules={[{ required: true, message: '请选择留样日期' }]}>
-            <DatePicker style={{ width: '100%' }} />
-          </Form.Item>
-        </Form>
+            <Space size={12} style={{ display: 'flex' }} align="start">
+              <Form.Item name="amountG" label="留样量(g)" rules={[{ required: true, message: '请输入留样量' }]}>
+                <InputNumber min={0} style={{ width: 150 }} />
+              </Form.Item>
+              <Form.Item name="retainMonths" label="留样期(月)" rules={[{ required: true, message: '请选择留样期' }]}>
+                <Select style={{ width: 150 }} options={[3, 6, 12, 18, 24, 36].map((m) => ({ label: `${m} 个月`, value: m }))} />
+              </Form.Item>
+            </Space>
+            <Form.Item name="cabinet" label="柜位" rules={[{ required: true, message: '请选择柜位' }]}>
+              <Select showSearch options={CABINETS.map((c) => ({ label: c, value: c }))} />
+            </Form.Item>
+            <Form.Item name="retainedAt" label="留样日期" rules={[{ required: true, message: '请选择留样日期' }]}>
+              <DatePicker style={{ width: '100%' }} />
+            </Form.Item>
+          </Form>
+        )}
       </Modal>
 
       <Modal

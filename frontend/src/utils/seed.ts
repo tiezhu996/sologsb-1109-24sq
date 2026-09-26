@@ -65,7 +65,9 @@ function buildSeedBatches(): ProcessBatch[] {
       temp: Math.round((method.tempRange[0] + method.tempRange[1]) / 2),
       yieldRate,
     });
-    const locked = index >= 2;
+    // 状态分布：前 2 批待质检，中间 6 批已放行，1 批被退回（留痕），最后 1 批待质检
+    const qcStatus: ProcessBatch['qcStatus'] = index < 2 ? '待质检' : index < 8 ? '已放行' : index === 8 ? '已退回' : '待质检';
+    const qcTouched = qcStatus !== '待质检';
     return {
       id: `batch-${String(index + 1).padStart(3, '0')}`,
       batchNo,
@@ -79,9 +81,21 @@ function buildSeedBatches(): ProcessBatch[] {
       yieldRate,
       degree: verdict.degree,
       operator,
-      locked,
-      lockedAt: locked ? new Date(new Date(endedAt).getTime() + 30 * 60_000).toISOString() : undefined,
-      qcBy: locked ? '质检员 · 赵敏' : undefined,
+      qcStatus,
+      submittedAt: endedAt,
+      releasedAt: qcStatus === '已放行' ? new Date(new Date(endedAt).getTime() + 30 * 60_000).toISOString() : undefined,
+      qcBy: qcTouched ? '质检员 · 赵敏' : undefined,
+      returns:
+        qcStatus === '已退回'
+          ? [
+              {
+                id: 'qcret-seed-001',
+                reason: '得率与预期偏差过大，请复核炮制后重量与投料记录',
+                returnedAt: new Date(new Date(endedAt).getTime() + 40 * 60_000).toISOString(),
+                qcBy: '质检员 · 赵敏',
+              },
+            ]
+          : [],
       remark,
     };
   });
@@ -97,23 +111,27 @@ function buildSeedSamples(batches: ProcessBatch[]): RetainSample[] {
     observer,
   });
 
-  return batches.slice(0, 6).map((batch, index) => {
-    const retainMonths = [6, 12, 18, 24][index % 4];
-    const retainedAt = new Date(Date.now() - (index * 37 + 8) * 86_400_000).toISOString();
-    return {
-      id: `sample-${String(index + 1).padStart(3, '0')}`,
-      sampleNo: `LY-${batch.batchNo}`,
-      batchId: batch.id,
-      amountG: [200, 300, 500][index % 3],
-      retainMonths,
-      cabinet: CABINETS[(index * 5) % CABINETS.length],
-      retainedAt,
-      observeLogs: [
-        logs(new Date(retainedAt).toISOString().slice(0, 10), '色泽符合标准', '气味正常', '无霉变', '赵敏'),
-        logs(new Date(Date.now() - (index * 11 + 2) * 86_400_000).toISOString().slice(0, 10), '色泽略深', '气味正常', '无霉变', '赵敏'),
-      ],
-    };
-  });
+  // 留样只能挂在质检已放行的批次上
+  return batches
+    .filter((batch) => batch.qcStatus === '已放行')
+    .slice(0, 6)
+    .map((batch, index) => {
+      const retainMonths = [6, 12, 18, 24][index % 4];
+      const retainedAt = new Date(Date.now() - (index * 37 + 8) * 86_400_000).toISOString();
+      return {
+        id: `sample-${String(index + 1).padStart(3, '0')}`,
+        sampleNo: `LY-${batch.batchNo}`,
+        batchId: batch.id,
+        amountG: [200, 300, 500][index % 3],
+        retainMonths,
+        cabinet: CABINETS[(index * 5) % CABINETS.length],
+        retainedAt,
+        observeLogs: [
+          logs(new Date(retainedAt).toISOString().slice(0, 10), '色泽符合标准', '气味正常', '无霉变', '赵敏'),
+          logs(new Date(Date.now() - (index * 11 + 2) * 86_400_000).toISOString().slice(0, 10), '色泽略深', '气味正常', '无霉变', '赵敏'),
+        ],
+      };
+    });
 }
 
 /** 首次打开（表内无数据）时写入示例数据；已有数据则不动 */

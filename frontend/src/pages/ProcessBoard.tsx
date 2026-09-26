@@ -9,19 +9,20 @@ import { useMethodStore } from '../stores/methodStore';
 import { useBatchStore } from '../stores/batchStore';
 import { useSampleStore } from '../stores/sampleStore';
 import { dueSamples, formatDate } from '../utils/degree';
-import type { ProcessBatch } from '../types/process-batch';
+import { QC_STATUS_COLORS, type ProcessBatch } from '../types/process-batch';
 import type { SampleExpiry } from '../types/retain-sample';
 
 const { Title, Paragraph, Text } = Typography;
 
-/** 首页：待炮制批次与留样到期提示 */
+/** 首页：待质检批次名单、留样到期提示与最近工序时间线 */
 export default function ProcessBoard() {
   const herbs = useHerbStore((s) => s.herbs);
   const methods = useMethodStore((s) => s.methods);
   const batches = useBatchStore((s) => s.batches);
   const samples = useSampleStore((s) => s.samples);
 
-  const pending = useMemo(() => batches.filter((b) => !b.locked), [batches]);
+  const pendingQc = useMemo(() => batches.filter((b) => b.qcStatus === '待质检'), [batches]);
+  const releasedCount = useMemo(() => batches.filter((b) => b.qcStatus === '已放行').length, [batches]);
   const due = useMemo(() => dueSamples(samples, 30), [samples]);
   const degreeCount = useMemo(() => {
     return batches.reduce(
@@ -41,12 +42,10 @@ export default function ProcessBoard() {
   const herbName = (id: string) => herbs.find((h) => h.id === id)?.name ?? '未知药材';
   const methodName = (id: string) => methods.find((m) => m.id === id)?.name ?? '未知方法';
 
-  const pendingColumns: TableColumnsType<ProcessBatch> = [
+  const pendingQcColumns: TableColumnsType<ProcessBatch> = [
     { title: '生产批号', dataIndex: 'batchNo', width: 130, render: (v: string) => <Text strong>{v}</Text> },
     { title: '药材', dataIndex: 'herbId', width: 100, render: (id: string) => herbName(id) },
     { title: '炮制方法', dataIndex: 'methodId', width: 100, render: (id: string) => methodName(id) },
-    { title: '投料量(kg)', dataIndex: 'feedKg', width: 100, align: 'right' },
-    { title: '辅料用量(kg)', dataIndex: 'auxUsedKg', width: 110, align: 'right' },
     {
       title: '得率(%)',
       dataIndex: 'yieldRate',
@@ -55,13 +54,15 @@ export default function ProcessBoard() {
       render: (v: number) => <Text type={v < 85 ? 'danger' : undefined}>{v}</Text>,
     },
     {
-      title: '火候',
-      dataIndex: 'fireLevel',
-      width: 90,
-      render: (v: string) => <Tag color={v === '武火' ? 'red' : v === '中火' ? 'orange' : 'green'}>{v}</Tag>,
+      title: '程度',
+      dataIndex: 'degree',
+      width: 80,
+      render: (v: ProcessBatch['degree']) => (
+        <Tag color={v === '适中' ? 'green' : v === '太过' ? 'red' : 'orange'}>{v}</Tag>
+      ),
     },
     { title: '操作人', dataIndex: 'operator', width: 90 },
-    { title: '开始时间', dataIndex: 'startedAt', width: 150, render: (v: string) => formatDate(v) },
+    { title: '提交时间', dataIndex: 'submittedAt', width: 120, render: (v: string) => formatDate(v) },
   ];
 
   const dueColumns: TableColumnsType<SampleExpiry> = [
@@ -100,10 +101,16 @@ export default function ProcessBoard() {
 
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} md={6}>
-          <StatBadge label="待炮制（未锁定）批次" value={pending.length} unit="批" status="warning" hint="得率与程度判定提交后即锁定" />
+          <StatBadge
+            label="待质检批次"
+            value={pendingQc.length}
+            unit="批"
+            status={pendingQc.length > 0 ? 'warning' : 'success'}
+            hint="班组已提交，待质检员放行或退回"
+          />
         </Col>
         <Col xs={12} md={6}>
-          <StatBadge label="在册药材批次" value={herbs.length} unit="批" />
+          <StatBadge label="已放行定稿" value={releasedCount} unit="批" status="success" hint="放行后得率与程度不再能改，留样只能从这些批次登记" />
         </Col>
         <Col xs={12} md={6}>
           <StatBadge label="30 天内到期留样" value={due.length} unit="份" status={due.length > 0 ? 'error' : 'success'} />
@@ -140,12 +147,17 @@ export default function ProcessBoard() {
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={15}>
           <Card
-            title="待炮制批次"
+            title={
+              <Space size={8}>
+                <span>待质检批次</span>
+                {pendingQc.length > 0 ? <Tag color={QC_STATUS_COLORS['待质检']}>{pendingQc.length} 批待复核</Tag> : null}
+              </Space>
+            }
             size="small"
             extra={
-              <Link to="/batches">
+              <Link to="/batches?qc=待质检">
                 <Button size="small" type="primary">
-                  去工序记录台
+                  去工序记录台处理
                 </Button>
               </Link>
             }
@@ -153,10 +165,11 @@ export default function ProcessBoard() {
             <Table
               rowKey="id"
               size="small"
-              columns={pendingColumns}
-              dataSource={pending}
+              columns={pendingQcColumns}
+              dataSource={pendingQc}
               pagination={{ pageSize: 6, hideOnSinglePage: true }}
-              scroll={{ x: 900 }}
+              scroll={{ x: 760 }}
+              locale={{ emptyText: '暂无待质检批次，班组提交后会出现在这里' }}
             />
           </Card>
         </Col>
